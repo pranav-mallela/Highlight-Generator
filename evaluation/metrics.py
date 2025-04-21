@@ -82,20 +82,28 @@ if __name__ == "__main__":
         match_counts[action] = match_counts.get(action, 0) + compare_outputs(pred, gt)
         gt_counts[action] = gt_counts.get(action, 0) + len(gt)
         pred_counts[action] = pred_counts.get(action, 0) + len(pred_counts)
-    print(f"\nGround truth counts: {json.dumps(gt_counts, indent=4)}")
-    print(f"\nPrediction counts: {json.dumps(pred_counts, indent=4)}")
-    print(f"\nMatched counts: {json.dumps(match_counts, indent=4)}")
 
     precision_map = {}
     recall_map = {}
-    f1 = {}
+    f1_map = {}
     for action in ACTIONS:
         precision = match_counts.get(action, 0) / pred_counts.get(action, 1)
         recall = match_counts.get(action, 0) / gt_counts.get(action, 1)
         precision_map[action] = precision
         recall_map[action] = recall
-        f1[action] = 2 * recall * precision / (recall + precision) if recall + precision else 0
+        f1_map[action] = 2 * recall * precision / (recall + precision) if recall + precision else 0
 
-    print(f"\n\"Precision\": {json.dumps(precision_map, indent=4)}")
-    print(f"\n\"Recall\": {json.dumps(recall_map, indent=4)}")
-    print(f"\n\"F1 scores\": {json.dumps(f1, indent=4)}")
+    total_precision = sum(match_counts.values()) / sum(pred_counts.values()) if sum(pred_counts.values()) else 0
+    total_recall = sum(match_counts.values()) / sum(gt_counts.values()) if sum(gt_counts.values()) else 0
+    total_f1 = 2 * total_recall * total_precision / (total_recall + total_precision) if total_recall + total_precision else 0
+
+    metrics = {}
+    metrics["precision"] = total_precision
+    metrics["recall"] = total_recall
+    metrics["f1"] = total_f1
+    metrics["action-wise precision"] = precision_map
+    metrics["action-wise recall"] = recall_map
+    metrics["action-wise f1"] = f1_map
+
+    print()
+    print(json.dumps(metrics, indent=4))
