@@ -10,7 +10,7 @@
 #SBATCH --mem-per-cpu=32GB
 #SBATCH --time=8:00:00
 #SBATCH --account=eecs545w25_class
-#SBATCH --partition=spgpu,gpu
+#SBATCH --partition=spgpu
 #SBATCH --output=/home/%u/logs/%x-%j.log
 # COMMENT:The application(s) to execute along with its input arguments and options:
 
@@ -20,4 +20,5 @@ ml cuda/12
 ml gcc/13.2.0
 export LD_PRELOAD=/sw/pkgs/arc/gcc/13.2.0/lib64/libstdc++.so.6
 export PYTHONPATH=$PYTHONPATH:/home/naveenu/Qwen2-VL-Finetune/src
+export HF_HOME=/scratch/eecs545w25_class_root/eecs545w25_class/highlights/cache
 bash $HOME/Qwen2-VL-Finetune/scripts/finetune_highlights.sh
