@@ -2,7 +2,7 @@ import json
 import re
 import sys
 
-THRESHOLD = 0
+THRESHOLD = 0.3
 TIME_RE = re.compile(r"\((\d{1,3}:\d{2})\s*,\s*(\d{1,3}:\d{2})\)")
 ACTIONS = [
     "corner",
