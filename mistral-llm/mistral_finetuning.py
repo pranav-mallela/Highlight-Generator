@@ -156,30 +156,32 @@ def response_template():
     return "\n #### Answer:"
 
 def prompt_instruction(commentary, timestamps=None, event_name=None):
-    system_message = """You are a Vision Language Model specialized in identifying an action in a soccer match from a fixed set of action classes as it occurs in a given soccer video. The action classes are corner, shots on target, goal, clearance, foul, free-kick, and substitution. Your task is to observe the input video and commentary carefully and respond to the prompt. Prompts will ask for the match times of an action. You are to respond with a series of sentences that describe the time (start, end), in real match time (minutes:seconds), when the action occurred. If the action does not occur in the input video, simply state that in your response. The video contains broadcast footage from soccer games between players of two teams distinguished by their team uniform. The commentary will come as a list of comments in the format [start_time, end_time, 'comment'], and time will be in the format minutes:seconds. Focus on delivering accurate timestamps based on the live game time displayed in the video. Absolutely avoid additional explanation. Here are some example prompts and answers in the format you are expect to follow: \n
-    Prompt: <video>\nHere is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n ####Answer: A goal occurs at (2:15, 2:27).\n
-    Prompt: <video>\nHere is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Shots on target occur in this segment.\n ####Answer: A shot on target occurs at (32:15, 32:27).\n
-    Prompt: <video>\nHere is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Corners occur in this segment.\n ####Answer: A corner occurs at (20:10, 20:22).\n
-    Prompt: <video>\nHere is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n ####Answer: A goal occurs at (1:05, 1:18). A goal occurs at (1:45, 1:55).\n
-    Prompt: <video>\nHere is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Fouls occur in this segment.\n ####Answer: A foul occurs at (2:16, 2:23). A foul occurs at (2:44, 2:52).\n"""
+    examples_segment = """Here are some example prompts and answers in the format you are expect to follow: \n
+    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n #### Answer: A goal occurs at (2:15, 2:27).\n
+    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Shots on target occur in this segment.\n #### Answer: A shot on target occurs at (32:15, 32:27).\n
+    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Corners occur in this segment.\n #### Answer: A corner occurs at (20:10, 20:22).\n
+    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n #### Answer: A goal occurs at (1:05, 1:18). A goal occurs at (1:45, 1:55).\n
+    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Fouls occur in this segment.\n #### Answer: A foul occurs at (2:16, 2:23). A foul occurs at (2:44, 2:52).\n"""
+    system_message = """You are a Large Language Model specialized in identifying an action in a soccer match from a fixed set of action classes as it occurs in given soccer commentary. The action classes are corner, shots on target, goal, clearance, foul, free-kick, and substitution. Your task is to observe the input commentary carefully and respond to the prompt. Prompts will ask for the match times of an action. You are to respond with a series of sentences that describe the time (start, end), in real match time (minutes:seconds), when the action occurred. If the action does not occur in the input commentary, simply state that in your response. The commentary will come as a list of comments in the format [start_time, end_time, 'comment'], and time will be in the format minutes:seconds. Focus on delivering accurate timestamps based on the live game time in the commentary data provided. Absolutely avoid additional explanation.\n"""
     gpt_answer = ""
     if timestamps is not None:
+        print(timestamps)
         for i in range(len(timestamps)):
-            gpt_answer += f"A {event_name} occurs at ({timestamps[i][0]}, {timestamps[i][1]}). "
+            gpt_answer += f"A {event_name} occurs at ({timestamps[i][0][0]}, {timestamps[i][0][1]}). "
         gpt_answer = gpt_answer.strip()
-        return f"#### {system_message} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n #### Answer: {gpt_answer}\n"
+        return f"#### {system_message} {examples_segment} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n #### Answer: {gpt_answer}\n"
     else:
-        return f"#### {system_message} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n"
+        return f"#### {system_message} {examples_segment} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n"
 
 
-# def format_prompts(example):
-#     # prompts = []
-#     # print(f"example[timestamps] = {example['timestamps']}")
-#     # for i in range(len(example['comments'])):
-#     #   instruction = prompt_instruction(example['comments'][i], example['timestamps'][i], example['event'][i])
-#     #   prompts.append(instruction)
-#     prompt = prompt_instruction(example['comments'], example['timestamps'], example['event'])
-#     return prompt
+def format_prompts(example):
+    # prompts = []
+    # print(f"example[timestamps] = {example['timestamps']}")
+    # for i in range(len(example['comments'])):
+    #   instruction = prompt_instruction(example['comments'][i], example['timestamps'][i], example['event'][i])
+    #   prompts.append(instruction)
+    prompt = prompt_instruction(example['comments'], example['timestamps'], example['event'])
+    return [prompt]
 
 def initialize_model_and_tokenizer():
 
@@ -230,7 +232,7 @@ def train(
         gradient_accumulation_steps=4,
         optim="paged_adamw_32bit",
         do_eval=False,
-        logging_steps=50,
+        logging_steps=1,
         learning_rate=4e-5,
         fp16=True,
         max_grad_norm=0.25,
@@ -239,6 +241,7 @@ def train(
         lr_scheduler_type="linear",
         seed=42,
         report_to="wandb",
+        max_seq_length=512,
     )
 
     trainer = SFTTrainer(
@@ -247,7 +250,6 @@ def train(
         peft_config=lora_config,
         formatting_func=format_prompts_function,
         data_collator=collator,
-        max_seq_length=512,
         tokenizer=tokenizer,
         args=training_arguments,
     )
@@ -256,7 +258,7 @@ def train(
         if "norm" in name:
             module = module.to(torch.float32)
 
-    trainer.train()
+    trainer.train(resume_from_checkpoint=True)
 
     return trainer, model
 
@@ -271,7 +273,10 @@ def test(model, tokenizer, dataset, predictions_file='predictions.torch'):
         inputs = tokenizer(prompt, return_tensors="pt")
         inputs = {k: v.to(model.device) for k, v in inputs.items()}  # Move values to the device
 
-        output = model.generate(**inputs, max_new_tokens=5, pad_token_id=tokenizer.eos_token_id)
+        input_ids = inputs["input_ids"]
+        outputs = model.generate(**inputs, max_new_tokens=512, pad_token_id=tokenizer.eos_token_id)
+        # output_ids = model.generate(input_ids)
+        prediction = tokenizer.decode(outputs[:, input_ids.shape[1]:])
 
         def get_timestamps(full_prediction):
             # for label in LABELS.keys():
@@ -280,7 +285,7 @@ def test(model, tokenizer, dataset, predictions_file='predictions.torch'):
             # return "OTHER"
             pass
 
-        prediction = get_timestamps(tokenizer.decode(output[0], skip_special_tokens=True).strip())
+        # prediction = get_timestamps(tokenizer.decode(output[0], skip_special_tokens=True).strip())
 
         # Store the prediction and ground truth
         results.append({
@@ -355,16 +360,18 @@ def test(model, tokenizer, dataset, predictions_file='predictions.torch'):
             "precision": precision,
             "f1": f1
         }
+    
+    print(results)
 
-    metrics = evaluate(results)
+    # metrics = evaluate(results)
 
-    print("Evaluation Metrics:")
-    print(f"Matched: {metrics['matched']}")
-    print(f"Total GT: {metrics['total_gt']}")
-    print(f"Total Pred: {metrics['total_pred']}")
-    print(f"Recall: {metrics['recall']}")
-    print(f"Precision: {metrics['precision']}")
-    print(f"F1 Score: {metrics['f1']}")
+    # print("Evaluation Metrics:")
+    # print(f"Matched: {metrics['matched']}")
+    # print(f"Total GT: {metrics['total_gt']}")
+    # print(f"Total Pred: {metrics['total_pred']}")
+    # print(f"Recall: {metrics['recall']}")
+    # print(f"Precision: {metrics['precision']}")
+    # print(f"F1 Score: {metrics['f1']}")
 
     # Save results to a JSON file for later use (to compute additional metrics from this run)
     with open("results_finetuning.json", "w") as file:
@@ -401,65 +408,65 @@ def main():
     tokenizer.add_special_tokens({'additional_special_tokens': [response_token]})
     model.resize_token_embeddings(len(tokenizer))
 
-    def preprocess_function(example):
-        # Generate full text (prompt + answer)
-        full_text = prompt_instruction(example['comments'], example['timestamps'], example['event'])
+    # def preprocess_function(example):
+    #     # Generate full text (prompt + answer)
+    #     full_text = prompt_instruction(example['comments'], example['timestamps'], example['event'])
 
-        # Split prompt and completion for masking
-        prompt_only = prompt_instruction(example['comments'], timestamps=None, event_name=example['event'])
+    #     # Split prompt and completion for masking
+    #     prompt_only = prompt_instruction(example['comments'], timestamps=None, event_name=example['event'])
 
-        print("=== Full text ===")
-        print(full_text)
-        print("=== Prompt only ===")
-        print(prompt_only)
+    #     print("=== Full text ===")
+    #     print(full_text)
+    #     print("=== Prompt only ===")
+    #     print(prompt_only)
 
-        # Tokenize full prompt+completion
-        tokenized = tokenizer(
-            full_text,
-            truncation=True,
-            padding='max_length',
-            max_length=512,
-            return_tensors=None
-        )
+    #     # Tokenize full prompt+completion
+    #     tokenized = tokenizer(
+    #         full_text,
+    #         truncation=True,
+    #         padding='max_length',
+    #         max_length=512,
+    #         return_tensors=None
+    #     )
 
-        # Mask prompt tokens in the labels
-        input_ids = tokenized["input_ids"]
-        labels = input_ids.copy()
+    #     # Mask prompt tokens in the labels
+    #     input_ids = tokenized["input_ids"]
+    #     labels = input_ids.copy()
 
-        prompt_ids = tokenizer(prompt_only, add_special_tokens=False)["input_ids"]
-        num_prompt_tokens = len(prompt_ids)
+    #     prompt_ids = tokenizer(prompt_only, add_special_tokens=False)["input_ids"]
+    #     num_prompt_tokens = len(prompt_ids)
 
-        labels[:num_prompt_tokens] = [-100] * num_prompt_tokens
-        tokenized["labels"] = labels
+    #     labels[:num_prompt_tokens] = [-100] * num_prompt_tokens
+    #     tokenized["labels"] = labels
 
-        return tokenized
+    #     return tokenized
 
-    tokenized_dataset = dataset_dict.map(preprocess_function, batched=False)
+    # tokenized_dataset = dataset_dict.map(preprocess_function, batched=False)
 
-    train_set, collator = load_data_and_collator(tokenized_dataset, split="train", 
+    train_set, collator = load_data_and_collator(dataset_dict, split="train", 
     tokenizer=tokenizer, response_template=response_token)
     # Sanity check to ensure loss will actually be computed
-    sample = train_set[0]
-    print("=== Formatted Prompt ===")
-    print(prompt_instruction(sample))
-    keys_to_keep = {"input_ids", "attention_mask", "labels"}
-    tokenized_sample = {k: v for k, v in sample.items() if k in keys_to_keep}
+    # sample = train_set[0]
+    # print("=== Formatted Prompt ===")
+    # print(prompt_instruction(sample))
+    # keys_to_keep = {"input_ids", "attention_mask", "labels"}
+    # tokenized_sample = {k: v for k, v in sample.items() if k in keys_to_keep}
 
-    collated = collator([tokenized_sample])
+    # collated = collator([tokenized_sample])
 
-    # collated = collator([sample])
-    print("=== Tokenized Input ===")
-    print(tokenizer.decode(collated["input_ids"][0]))
-    print("=== Labels (should not be all -100) ===")
-    print(collated["labels"][0])
-    trainer, model = train(model, train_set, tokenizer, collator) # , format_prompts_function=format_prompts
+    # # collated = collator([sample])
+    # print("=== Tokenized Input ===")
+    # print(tokenizer.decode(collated["input_ids"][0]))
+    # print("=== Labels (should not be all -100) ===")
+    # print(collated["labels"][0])
+    trainer, model = train(model, train_set, tokenizer, collator, format_prompts_function=format_prompts) # , format_prompts_function=format_prompts
 
     # Use validation set in test() for debugging & improving the model
     # validation_set, _ = load_data_and_collator(dataset_dict, split="validation", tokenizer=tokenizer, response_template=response_token)
     # test(model, tokenizer, validation_set)
 
     # Use test set in test() for reporting
-    test_set, _ = load_data_and_collator(tokenized_dataset, split="test", tokenizer=tokenizer, response_template=response_token)
+    test_set, _ = load_data_and_collator(dataset_dict, split="test", tokenizer=tokenizer, response_template=response_token)
     test(model, tokenizer, test_set)
 
     return model
