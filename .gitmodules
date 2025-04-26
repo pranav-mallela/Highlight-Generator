@@ -1,0 +1,4 @@
+[submodule "Qwen2-VL-Finetune"]
+	path = Qwen2-VL-Finetune
+	url = https://github.com/naveen-u/Qwen2-VL-Finetune.git
+	branch = qwen2-2b-awq-finetune

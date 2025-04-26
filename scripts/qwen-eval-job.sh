@@ -1,6 +1,6 @@
 #!/bin/sh
 # COMMENT: #SBATCH directives that convey submission options:
-#SBATCH --job-name=finetune_qwen
+#SBATCH --job-name=eval_qwen
 #SBATCH --mail-type=BEGIN,END,FAILED
 #SBATCH --parsable
 #SBATCH --nodes=1
@@ -19,6 +19,6 @@ conda activate qwen2
 ml cuda/12
 ml gcc/13.2.0
 export LD_PRELOAD=/sw/pkgs/arc/gcc/13.2.0/lib64/libstdc++.so.6
-export PYTHONPATH=$PYTHONPATH:/home/naveenu/Qwen2-VL-Finetune/src
 export HF_HOME=/scratch/eecs545w25_class_root/eecs545w25_class/highlights/cache
-bash $HOME/Qwen2-VL-Finetune/scripts/finetune_highlights.sh
+
+python /home/naveenu/545-project/evaluation/qwen_eval.py

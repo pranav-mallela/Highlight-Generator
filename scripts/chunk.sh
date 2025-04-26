@@ -29,7 +29,7 @@ echo;
 find $SOCCERNET_ROOT/$LEAGUE/$SEASON -name "*_720p.mkv" -exec bash -c \
 	'video_path=$1;
 	echo "Processing video: $video_path";
-	part_path="$(dirname -- "$video_path")/chunked";
+	part_path="$(dirname -- "$video_path")/elephant";
 	mkdir -p "$part_path";
 	chunk_prefix=$(basename -- "$video_path" | cut -d "_" -f 1);
 	chunk_name="${chunk_prefix}_%03d.mkv";
@@ -37,7 +37,7 @@ find $SOCCERNET_ROOT/$LEAGUE/$SEASON -name "*_720p.mkv" -exec bash -c \
 		-i "$video_path" \
 		-loglevel 8  \
 		-c copy -map 0 \
-		-segment_time 00:05:00 \
+		-segment_time 00:01:00 \
 		-f segment \
 		-reset_timestamps 1 \
 		"$part_path/$chunk_name";
