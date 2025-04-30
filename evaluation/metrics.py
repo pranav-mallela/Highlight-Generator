@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 
@@ -37,23 +38,20 @@ def iou(interval1: tuple[int, int], interval2: tuple[int, int]) -> float:
     union = max(end1, end2) - min(start1, start2)
     return intersection / union if union > 0 else 0
 
-def compare_outputs(pred: list[tuple[int, int]], gt: list[tuple[int, int]]) -> int:
+def compare_outputs(pred: list[tuple[int, int]], gt: list[tuple[int, int]]) -> tuple[int, int]:
     matched = 0
-    used_preds = set()
+    matched_preds = set()
     for gt_range in gt:
         best_iou = 0
-        best_idx = -1
         for idx, pred_range in enumerate(pred):
-            if idx in used_preds:
-                continue
             score = iou(gt_range, pred_range)
+            if score >= THRESHOLD:      # Found some GT matching the prediction
+                matched_preds.add(idx)
             if score > best_iou:
                 best_iou = score
-                best_idx = idx
-        if best_iou > THRESHOLD:
+        if best_iou >= THRESHOLD:       # GT has some matching prediction
             matched += 1
-            used_preds.add(best_idx)
-    return matched
+    return len(matched_preds), matched
 
 
 def parse_action(out: str) -> str:
@@ -64,46 +62,51 @@ def parse_action(out: str) -> str:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         raise "Expected JSON filename as input"
-    filename = sys.argv[1]
-    with open(filename, "r") as f:
-        results = json.load(f)
+    filenames = sys.argv[1:]
+    all_metrics = {}
+    for filename in filenames:
+        with open(filename, "r") as f:
+            results = json.load(f)
 
-    gt_counts = {}
-    pred_counts = {}
-    match_counts = {}
+        gt_counts = {}
+        pred_counts = {}
+        match_counts_pred = {}
+        match_counts_gt = {}
 
-    for result in results:
-        predictions = result.get("prediction", result.get("result"))
-        if isinstance(predictions, list):
-            predictions = predictions[0]
-        pred = parse_timestamps(predictions)
-        gt = parse_timestamps(result["ground_truth"])
-        action = parse_action(result["ground_truth"])
-        match_counts[action] = match_counts.get(action, 0) + compare_outputs(pred, gt)
-        gt_counts[action] = gt_counts.get(action, 0) + len(gt)
-        pred_counts[action] = pred_counts.get(action, 0) + len(pred_counts)
+        for result in results:
+            predictions = result.get("prediction", result.get("result"))
+            if isinstance(predictions, list):
+                predictions = predictions[0]
+            pred = parse_timestamps(predictions)
+            gt = parse_timestamps(result["ground_truth"])
+            action = parse_action(result["ground_truth"])
+            pred_matches, gt_matches = compare_outputs(pred, gt)
+            match_counts_pred[action] = match_counts_pred.get(action, 0) + pred_matches
+            match_counts_gt[action] = match_counts_gt.get(action, 0) + gt_matches
+            gt_counts[action] = gt_counts.get(action, 0) + len(gt)
+            pred_counts[action] = pred_counts.get(action, 0) + len(pred_counts)
 
-    precision_map = {}
-    recall_map = {}
-    f1_map = {}
-    for action in ACTIONS:
-        precision = match_counts.get(action, 0) / pred_counts.get(action, 1)
-        recall = match_counts.get(action, 0) / gt_counts.get(action, 1)
-        precision_map[action] = precision
-        recall_map[action] = recall
-        f1_map[action] = 2 * recall * precision / (recall + precision) if recall + precision else 0
+        precision_map = {}
+        recall_map = {}
+        f1_map = {}
+        for action in ACTIONS:
+            precision = match_counts_pred.get(action, 0) / pred_counts.get(action, 1)
+            recall = match_counts_gt.get(action, 0) / gt_counts.get(action, 1)
+            precision_map[action] = precision
+            recall_map[action] = recall
+            f1_map[action] = 2 * recall * precision / (recall + precision) if recall + precision else 0
 
-    total_precision = sum(match_counts.values()) / sum(pred_counts.values()) if sum(pred_counts.values()) else 0
-    total_recall = sum(match_counts.values()) / sum(gt_counts.values()) if sum(gt_counts.values()) else 0
-    total_f1 = 2 * total_recall * total_precision / (total_recall + total_precision) if total_recall + total_precision else 0
+        total_precision = sum(match_counts_pred.values()) / sum(pred_counts.values()) if sum(pred_counts.values()) else 0
+        total_recall = sum(match_counts_gt.values()) / sum(gt_counts.values()) if sum(gt_counts.values()) else 0
+        total_f1 = 2 * total_recall * total_precision / (total_recall + total_precision) if total_recall + total_precision else 0
 
-    metrics = {}
-    metrics["precision"] = total_precision
-    metrics["recall"] = total_recall
-    metrics["f1"] = total_f1
-    metrics["action-wise precision"] = precision_map
-    metrics["action-wise recall"] = recall_map
-    metrics["action-wise f1"] = f1_map
-
+        metrics = {}
+        metrics["precision"] = total_precision
+        metrics["recall"] = total_recall
+        metrics["f1"] = total_f1
+        metrics["action-wise precision"] = precision_map
+        metrics["action-wise recall"] = recall_map
+        metrics["action-wise f1"] = f1_map
+        all_metrics[os.path.splitext(os.path.basename(filename))[0]] = metrics
     print()
-    print(json.dumps(metrics, indent=4))
+    print(json.dumps(all_metrics, indent=4))
