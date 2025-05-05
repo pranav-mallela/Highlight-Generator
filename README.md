@@ -14,3 +14,4 @@
 - `mistral-llm/`: Directory related to experimentation with Mistral.
 - `scripts/`: Shell scripts for data processing, finetuning, and evaluation.
 - `EECS 545 POSTER.pdf`: Poster presentation summarizing the project.
+- `EECS545_Project_Report.pdf`: Paper describing the project.
