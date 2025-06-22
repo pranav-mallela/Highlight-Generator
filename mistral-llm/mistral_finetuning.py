@@ -4,10 +4,11 @@ import torch
 import pandas as pd
 import json
 from datasets import Dataset, DatasetDict
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, AutoProcessor
 from peft import LoraConfig
 from trl import SFTConfig, SFTTrainer, DataCollatorForCompletionOnlyLM
 from dotenv import load_dotenv
+from peft import PeftModel
 
 def set_seed(seed):
     random.seed(seed)
@@ -28,52 +29,6 @@ run = wandb.init(
     job_type="training",
     anonymous="allow"
 )
-
-# ordered in priority (earlier labels supercede later ones)
-# labels and their key-phrases
-# LABELS = {
-#     "STOPPED": (["not moving", "stopped", "still", "sitting", "stop", "isn't moving", "not moving", "stops", "parked","stationary"]),
-#     "REVERSE": (["reverse", "reverses", "reversing"]),
-#     "ACCELERATE": (["accelerates", "resumes", "picks up", "speeding up", "speeds up", "accelerate", "accelerating"]),
-#     "RIGHT": (["merge", "turn", "turns", "veer", "makes", "veers", "steers", "steering", "merges",  "moves", "moving", "shifting", "switching", "merging", "turning"],["right"]), # needs a word in BOTH to match
-#     "LEFT": (["merge", "turn", "turns", "veer", "makes", "veers", "steers", "steering", "merges",  "moves", "moving", "shifting", "switching", "merging", "turning"],["left"]), # needs a word in BOTH to match
-#     "MAINTAIN": (["travelling down", "going fast", "continues", "continue", "steady", "moves down", "moves forward", "moving down", "moving forward", "drives slowly", "stays", "inches", "drives forward", "steadily", "driving slowly", "driving", "drives", "driving forward", "maintains"]),
-#     "SLOW": (["slows", "slowing", "brakes", "braking", "slow", "is stopping"]),
-#     "OTHER": ([])
-# }
-
-# BUCKET_MAPPING = {
-#     "MAINTAIN": "MAINTAIN",
-#     "ACCELERATE": "MAINTAIN",
-#     "STOPPED": "SLOW",
-#     "SLOW": "SLOW",
-#     "RIGHT": "TURN",
-#     "LEFT": "TURN",
-#     "REVERSE": "REVERSE",
-#     "OTHER": "OTHER"
-# }
-
-# def check_label_match(full_string, label_key):
-#     if label_key == "OTHER":
-#         return True
-
-#     if label_key == "LEFT" or label_key == "RIGHT":
-#         match = True
-#         for key_word_set in LABELS[label_key]:
-#             set_match = False
-#             for key_word in key_word_set:
-#                 if key_word in full_string:
-#                     set_match = True
-#             match = (match and set_match)
-#         if match:
-#             return True
-
-#     else:
-#         for key_word in LABELS[label_key]:
-#             if key_word in full_string:
-#                 return True
-
-#     return False
 
 # def get_label(full_string):
 #     for k in LABELS.keys():
@@ -138,7 +93,7 @@ def load_data_and_collator(
     dataset_dict,
     split="train",
     tokenizer=None,
-    response_template="#### Answer:",
+    response_template="\n#### Answer:",
 ):
 
     if split not in dataset_dict:
@@ -153,37 +108,38 @@ def load_data_and_collator(
     return dataset, collator
 
 def response_template():
-    return "\n #### Answer:"
+    return "\n#### Answer:"
 
 def prompt_instruction(commentary, timestamps=None, event_name=None):
-    examples_segment = """Here are some example prompts and answers in the format you are expect to follow: \n
-    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n #### Answer: A goal occurs at (2:15, 2:27).\n
-    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Shots on target occur in this segment.\n #### Answer: A shot on target occurs at (32:15, 32:27).\n
-    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Corners occur in this segment.\n #### Answer: A corner occurs at (20:10, 20:22).\n
-    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n #### Answer: A goal occurs at (1:05, 1:18). A goal occurs at (1:45, 1:55).\n
-    Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Fouls occur in this segment.\n #### Answer: A foul occurs at (2:16, 2:23). A foul occurs at (2:44, 2:52).\n"""
-    system_message = """You are a Large Language Model specialized in identifying an action in a soccer match from a fixed set of action classes as it occurs in given soccer commentary. The action classes are corner, shots on target, goal, clearance, foul, free-kick, and substitution. Your task is to observe the input commentary carefully and respond to the prompt. Prompts will ask for the match times of an action. You are to respond with a series of sentences that describe the time (start, end), in real match time (minutes:seconds), when the action occurred. If the action does not occur in the input commentary, simply state that in your response. The commentary will come as a list of comments in the format [start_time, end_time, 'comment'], and time will be in the format minutes:seconds. Focus on delivering accurate timestamps based on the live game time in the commentary data provided. Absolutely avoid additional explanation.\n"""
+    # """Here are some example prompts and answers in the format you are expect to follow: \n
+    # Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n#### Answer: A goal occurs at (2:15, 2:27).\n
+    # Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Shots on target occur in this segment.\n#### Answer: A shot on target occurs at (32:15, 32:27).\n
+    # Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Corners occur in this segment.\n#### Answer: A corner occurs at (20:10, 20:22).\n
+    # Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Goals occur in this segment.\n#### Answer: A goal occurs at (1:05, 1:18). A goal occurs at (1:45, 1:55).\n
+    # Prompt: Here is match commentary for a 1 min segment of a match <commentary>\n. Utilize the commentary and video clip of this segment to accurately find all the match times that Fouls occur in this segment.\n#### Answer: A foul occurs at (2:16, 2:23). A foul occurs at (2:44, 2:52).\n"""
+    system_message = """You are an LLM specialized in identifying an action in a soccer match as it occurs in given soccer commentary. The commentary is a list of comments in the format [start_time, end_time, 'comment']. Commentary for a 1 min segment of a match: """
     gpt_answer = ""
     if timestamps is not None:
-        print(timestamps)
         for i in range(len(timestamps)):
-            gpt_answer += f"A {event_name} occurs at ({timestamps[i][0][0]}, {timestamps[i][0][1]}). "
+            s = timestamps[i].strip('()')
+            time_tuple = tuple(s.split(', '))
+            gpt_answer += f"A {event_name} occurs at ({time_tuple[0]}, {time_tuple[1]}). "
         gpt_answer = gpt_answer.strip()
-        return f"#### {system_message} {examples_segment} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n #### Answer: {gpt_answer}\n"
+        return f"#### {system_message} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n#### Answer: {gpt_answer}\n"
     else:
-        return f"#### {system_message} {examples_segment} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n"
+        return f"#### {system_message} {commentary} Utilize the commentary of this segment to accurately find all the match times that {event_name} occurs in this segment.\n#### Answer: "
 
 
 def format_prompts(example):
-    # prompts = []
-    # print(f"example[timestamps] = {example['timestamps']}")
-    # for i in range(len(example['comments'])):
-    #   instruction = prompt_instruction(example['comments'][i], example['timestamps'][i], example['event'][i])
-    #   prompts.append(instruction)
-    prompt = prompt_instruction(example['comments'], example['timestamps'], example['event'])
-    return [prompt]
+    prompts = []
+    for i in range(len(example['comments'])):
+        instruction = prompt_instruction(example['comments'][i], example['timestamps'][i], example['event'][i])
+        prompts.append(instruction)
+    # prompt = prompt_instruction(example['comments'], example['timestamps'], example['event'])
+    print(prompts[-1])
+    return prompts
 
-def initialize_model_and_tokenizer():
+def initialize_model_and_tokenizer(for_inference=False):
 
     tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3") # download MISTRAL model
     tokenizer.pad_token = tokenizer.eos_token
@@ -199,7 +155,8 @@ def initialize_model_and_tokenizer():
         "mistralai/Mistral-7B-v0.3",
         quantization_config=quant_config,
         trust_remote_code=True,
-        low_cpu_mem_usage=True
+        low_cpu_mem_usage=True,
+        attn_implementation="flash_attention_2"
     )
 
     model.config.use_cache = False
@@ -228,9 +185,10 @@ def train(
         run_name="soccer-highlights",
         output_dir="./results",
         num_train_epochs=4,
-        per_device_train_batch_size=4,
+        per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
-        optim="paged_adamw_32bit",
+        gradient_checkpointing=True,
+        optim="adafactor", # paged_adamw_32bit
         do_eval=False,
         logging_steps=1,
         learning_rate=4e-5,
@@ -241,7 +199,7 @@ def train(
         lr_scheduler_type="linear",
         seed=42,
         report_to="wandb",
-        max_seq_length=512,
+        max_seq_length=1536,
     )
 
     trainer = SFTTrainer(
@@ -250,7 +208,7 @@ def train(
         peft_config=lora_config,
         formatting_func=format_prompts_function,
         data_collator=collator,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         args=training_arguments,
     )
 
@@ -273,10 +231,7 @@ def test(model, tokenizer, dataset, predictions_file='predictions.torch'):
         inputs = tokenizer(prompt, return_tensors="pt")
         inputs = {k: v.to(model.device) for k, v in inputs.items()}  # Move values to the device
 
-        input_ids = inputs["input_ids"]
-        outputs = model.generate(**inputs, max_new_tokens=512, pad_token_id=tokenizer.eos_token_id)
-        # output_ids = model.generate(input_ids)
-        prediction = tokenizer.decode(outputs[:, input_ids.shape[1]:])
+        outputs = model.generate(**inputs, max_new_tokens=35, pad_token_id=tokenizer.eos_token_id)
 
         def get_timestamps(full_prediction):
             # for label in LABELS.keys():
@@ -289,79 +244,65 @@ def test(model, tokenizer, dataset, predictions_file='predictions.torch'):
 
         # Store the prediction and ground truth
         results.append({
-            "prediction": prediction,
+            "prediction": tokenizer.batch_decode(outputs, skip_special_tokens=True),
             "ground_truth": example['timestamps'],
         })
 
-    # def compute_accuracy(results):
-    #     count = 0
-    #     bucket_count = 0
-    #     for result in results:
-    #         # Check if prediction matches the label
-    #         if result['prediction'] == result['ground_truth']: # first 111 chars are the original prompt & don't contain new output
-    #             count += 1
+    # def time_to_seconds(t):
+    #     mins, secs = map(int, t.strip().split(":"))
+    #     return mins * 60 + secs
 
-    #         # Check if pred vs ground truth buckets match
-    #         if result['prediction_bucket'] == result['ground_truth_bucket']:
-    #             bucket_count += 1
+    # def iou(interval1, interval2):
+    #     start1, end1 = interval1
+    #     start2, end2 = interval2
+    #     inter_start = max(start1, start2)
+    #     inter_end = min(end1, end2)
+    #     intersection = max(0, inter_end - inter_start)
+    #     union = max(end1, end2) - min(start1, start2)
+    #     return intersection / union if union > 0 else 0
 
-    #     return ((count / len(results)),(bucket_count / len(results)))
-
-    def time_to_seconds(t):
-        mins, secs = map(int, t.strip().split(":"))
-        return mins * 60 + secs
-
-    def iou(interval1, interval2):
-        start1, end1 = interval1
-        start2, end2 = interval2
-        inter_start = max(start1, start2)
-        inter_end = min(end1, end2)
-        intersection = max(0, inter_end - inter_start)
-        union = max(end1, end2) - min(start1, start2)
-        return intersection / union if union > 0 else 0
-
-    def evaluate(gt_intervals, pred_intervals, threshold=0.3):
-        gt_secs = [(time_to_seconds(s), time_to_seconds(e)) for s, e in gt_intervals]
-        pred_secs = [(time_to_seconds(s), time_to_seconds(e)) for s, e in pred_intervals]
+    # def evaluate(gt_intervals, pred_intervals, threshold=0.3):
+    #     gt_secs = [(time_to_seconds(s), time_to_seconds(e)) for s, e in gt_intervals]
+    #     pred_secs = [(time_to_seconds(s), time_to_seconds(e)) for s, e in pred_intervals]
         
-        matched = 0
-        used_preds = set()
+    #     matched = 0
+    #     used_preds = set()
         
-        # Match GT intervals to model predictions
-        for gt in gt_secs:
-            best_iou = 0
-            best_idx = -1
-            for idx, pred in enumerate(pred_secs):
-                if idx in used_preds:
-                    continue
-                score = iou(gt, pred)
-                if score > best_iou:
-                    best_iou = score
-                    best_idx = idx
-            if best_iou >= threshold:
-                matched += 1
-                used_preds.add(best_idx)
+    #     # Match GT intervals to model predictions
+    #     for gt in gt_secs:
+    #         best_iou = 0
+    #         best_idx = -1
+    #         for idx, pred in enumerate(pred_secs):
+    #             if idx in used_preds:
+    #                 continue
+    #             score = iou(gt, pred)
+    #             if score > best_iou:
+    #                 best_iou = score
+    #                 best_idx = idx
+    #         if best_iou >= threshold:
+    #             matched += 1
+    #             used_preds.add(best_idx)
         
-        # Precision: How many model intervals matched
-        precision = matched / len(pred_secs) if pred_secs else 0
+    #     # Precision: How many model intervals matched
+    #     precision = matched / len(pred_secs) if pred_secs else 0
         
-        # Recall: How many GT intervals were matched
-        recall = matched / len(gt_secs) if gt_secs else 0
+    #     # Recall: How many GT intervals were matched
+    #     recall = matched / len(gt_secs) if gt_secs else 0
         
-        # F1 score: Harmonic mean of precision and recall
-        f1 = 2 * recall * precision / (recall + precision) if recall + precision else 0
+    #     # F1 score: Harmonic mean of precision and recall
+    #     f1 = 2 * recall * precision / (recall + precision) if recall + precision else 0
         
         # Return results
-        return {
-            "matched": matched,
-            "total_gt": len(gt_secs),
-            "total_pred": len(pred_secs),
-            "recall": recall,
-            "precision": precision,
-            "f1": f1
-        }
+        # return {
+        #     "matched": matched,
+        #     "total_gt": len(gt_secs),
+        #     "total_pred": len(pred_secs),
+        #     "recall": recall,
+        #     "precision": precision,
+        #     "f1": f1
+        # }
     
-    print(results)
+    # print(results)
 
     # metrics = evaluate(results)
 
@@ -382,8 +323,6 @@ def test(model, tokenizer, dataset, predictions_file='predictions.torch'):
 
 def main():
 
-    # raw_examples = load_examples()
-    # examples = preprocess_examples(raw_examples)
     data = []
     with open("LLM_training_samples.json", "r") as file:
         data = json.load(file)
@@ -393,7 +332,7 @@ def main():
     df = pd.DataFrame(data, columns=["timestamps", "comments", "event"])
     dataset = Dataset.from_pandas(df)
     shuffled_dataset = dataset.shuffle(seed=42) # shuffle to account for implicit order in existing scenario-reason pairs
-    sample_size = int(0.50 * len(shuffled_dataset)) # choose 50% of the dataset for fine-tuning in under 2 hours on gpu_mig40
+    sample_size = int(0.40 * len(shuffled_dataset)) # choose 50% of the dataset for fine-tuning in under 2 hours on gpu_mig40
     sampled_dataset = shuffled_dataset.select(range(sample_size))
     train_test_split = sampled_dataset.train_test_split(test_size=0.3, seed=42)
     validation_test_split = train_test_split['test'].train_test_split(test_size=0.5, seed=42)
@@ -402,64 +341,21 @@ def main():
         'validation': validation_test_split['train'],
         'test': validation_test_split['test']
     })
-
+    for_inference = True
     model, tokenizer = initialize_model_and_tokenizer()
     response_token = response_template()
     tokenizer.add_special_tokens({'additional_special_tokens': [response_token]})
     model.resize_token_embeddings(len(tokenizer))
 
-    # def preprocess_function(example):
-    #     # Generate full text (prompt + answer)
-    #     full_text = prompt_instruction(example['comments'], example['timestamps'], example['event'])
+    if for_inference:
+        model = PeftModel.from_pretrained(model, "./results/checkpoint-1000")
+        model = model.merge_and_unload()
+        model.eval()
 
-    #     # Split prompt and completion for masking
-    #     prompt_only = prompt_instruction(example['comments'], timestamps=None, event_name=example['event'])
-
-    #     print("=== Full text ===")
-    #     print(full_text)
-    #     print("=== Prompt only ===")
-    #     print(prompt_only)
-
-    #     # Tokenize full prompt+completion
-    #     tokenized = tokenizer(
-    #         full_text,
-    #         truncation=True,
-    #         padding='max_length',
-    #         max_length=512,
-    #         return_tensors=None
-    #     )
-
-    #     # Mask prompt tokens in the labels
-    #     input_ids = tokenized["input_ids"]
-    #     labels = input_ids.copy()
-
-    #     prompt_ids = tokenizer(prompt_only, add_special_tokens=False)["input_ids"]
-    #     num_prompt_tokens = len(prompt_ids)
-
-    #     labels[:num_prompt_tokens] = [-100] * num_prompt_tokens
-    #     tokenized["labels"] = labels
-
-    #     return tokenized
-
-    # tokenized_dataset = dataset_dict.map(preprocess_function, batched=False)
-
-    train_set, collator = load_data_and_collator(dataset_dict, split="train", 
-    tokenizer=tokenizer, response_template=response_token)
-    # Sanity check to ensure loss will actually be computed
-    # sample = train_set[0]
-    # print("=== Formatted Prompt ===")
-    # print(prompt_instruction(sample))
-    # keys_to_keep = {"input_ids", "attention_mask", "labels"}
-    # tokenized_sample = {k: v for k, v in sample.items() if k in keys_to_keep}
-
-    # collated = collator([tokenized_sample])
-
-    # # collated = collator([sample])
-    # print("=== Tokenized Input ===")
-    # print(tokenizer.decode(collated["input_ids"][0]))
-    # print("=== Labels (should not be all -100) ===")
-    # print(collated["labels"][0])
-    trainer, model = train(model, train_set, tokenizer, collator, format_prompts_function=format_prompts) # , format_prompts_function=format_prompts
+    # Train code
+    # train_set, collator = load_data_and_collator(dataset_dict, split="train", 
+    # tokenizer=tokenizer, response_template=response_token)
+    # trainer, model = train(model, train_set, tokenizer, collator, format_prompts_function=format_prompts)
 
     # Use validation set in test() for debugging & improving the model
     # validation_set, _ = load_data_and_collator(dataset_dict, split="validation", tokenizer=tokenizer, response_template=response_token)
